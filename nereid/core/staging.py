@@ -6,7 +6,7 @@ Production is only touched after explicit review + approval.
 """
 
 import pandas as pd
-from sqlalchemy import text, inspect
+from sqlalchemy import create_engine, text, inspect, Table, Column, Text, MetaData
 from sqlalchemy.engine import Engine
 
 from nereid.core.differ import Changeset
@@ -28,19 +28,25 @@ def _meta_table_ddl(schema: str) -> str:
     """
 
 
-def _df_to_sql(df: pd.DataFrame, table: str, engine: Engine, schema: str, if_exists: str = "append"):
-    """Write a DataFrame to PostgreSQL using raw INSERT."""
+def _ensure_table(engine: Engine, table: str, df: pd.DataFrame, schema: str):
+    """
+    Create a staging table from DataFrame columns if it doesn't exist.
+    Uses raw DDL — no pandas/SQLAlchemy to_sql involved.
+    """
+    cols_ddl = ", ".join(f'"{c}" TEXT' for c in df.columns)
+    ddl = f'CREATE TABLE IF NOT EXISTS "{schema}"."{table}" ({cols_ddl})'
     with engine.connect() as conn:
-        df.head(0).to_sql(table, conn, schema=schema, if_exists=if_exists, index=False)
+        conn.execute(text(ddl))
         conn.commit()
 
+
+def _insert_rows(engine: Engine, table: str, df: pd.DataFrame, schema: str):
+    """Insert DataFrame rows using raw parameterized SQL."""
     if df.empty:
         return
-
     cols = ", ".join(f'"{c}"' for c in df.columns)
     placeholders = ", ".join(f":{c}" for c in df.columns)
     stmt = text(f'INSERT INTO "{schema}"."{table}" ({cols}) VALUES ({placeholders})')
-
     with engine.connect() as conn:
         for _, row in df.iterrows():
             conn.execute(stmt, row.to_dict())
@@ -48,23 +54,17 @@ def _df_to_sql(df: pd.DataFrame, table: str, engine: Engine, schema: str, if_exi
 
 
 def _upsert_df(df: pd.DataFrame, table: str, engine: Engine, schema: str, pk_column: str):
-    """
-    Upsert a DataFrame into a production table.
-    Uses INSERT ... ON CONFLICT (pk) DO UPDATE to handle existing rows.
-    """
+    """Upsert a DataFrame into a production table using INSERT ... ON CONFLICT DO UPDATE."""
     if df.empty:
         return
-
-    cols = [c for c in df.columns]
+    cols = list(df.columns)
     col_list = ", ".join(f'"{c}"' for c in cols)
     placeholders = ", ".join(f":{c}" for c in cols)
     updates = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in cols if c != pk_column)
-
     stmt = text(
         f'INSERT INTO "{schema}"."{table}" ({col_list}) VALUES ({placeholders}) '
         f'ON CONFLICT ("{pk_column}") DO UPDATE SET {updates}'
     )
-
     with engine.connect() as conn:
         for _, row in df.iterrows():
             conn.execute(stmt, row.to_dict())
@@ -81,11 +81,13 @@ def write_to_staging(engine: Engine, changeset: Changeset, staging_schema: str):
         conn.commit()
 
     if len(changeset.inserts) > 0:
-        _df_to_sql(changeset.inserts, table, engine, staging_schema, if_exists="append")
+        _ensure_table(engine, table, changeset.inserts, staging_schema)
+        _insert_rows(engine, table, changeset.inserts, staging_schema)
         logger.dim(f"    Staged {len(changeset.inserts)} inserts for '{table}'")
 
     if len(changeset.updates) > 0:
-        _df_to_sql(changeset.updates, table, engine, staging_schema, if_exists="append")
+        _ensure_table(engine, table, changeset.updates, staging_schema)
+        _insert_rows(engine, table, changeset.updates, staging_schema)
         logger.dim(f"    Staged {len(changeset.updates)} updates for '{table}'")
 
     if len(changeset.deletes) > 0:
@@ -153,15 +155,12 @@ def promote_to_production(engine: Engine, staging_schema: str, production_schema
         if staged_df.empty:
             continue
 
-        # Detect PK from production table
         pk_col = _get_pk_column(engine, table_name, production_schema)
         if not pk_col:
             logger.warning(f"  No PK found for '{table_name}' — skipping promotion.")
             continue
 
-        # Deduplicate staged rows — keep last version of each PK
         staged_df = staged_df.drop_duplicates(subset=[pk_col], keep="last")
-
         _upsert_df(staged_df, table_name, engine, production_schema, pk_col)
         promoted += 1
         logger.success(f"  Promoted '{table_name}' → {production_schema} ({len(staged_df)} rows)")
