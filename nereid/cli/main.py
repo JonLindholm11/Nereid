@@ -1,6 +1,6 @@
 """
 Nereid CLI — main entry point.
-Two commands: export and watch.
+Commands: export, watch, review.
 """
 
 import click
@@ -24,52 +24,19 @@ def cli():
 
 
 @cli.command()
-@click.option(
-    "--mode",
-    type=click.Choice(["single", "multi"]),
-    envvar="NEREID_MODE",
-    default="single",
-    show_default=True,
-    help="Sync mode: single XLSX file or folder of CSVs.",
-)
-@click.option(
-    "--output",
-    "-o",
-    envvar="NEREID_FILE_PATH",
-    required=True,
-    help="Output path — XLSX file (single) or folder (multi).",
-)
-@click.option(
-    "--db-url",
-    envvar="NEREID_DB_URL",
-    required=True,
-    help="PostgreSQL connection string.",
-)
-@click.option(
-    "--tables",
-    "-t",
-    multiple=True,
-    help="Tables to export. Exports all tables if not specified.",
-)
+@click.option("--mode", type=click.Choice(["single", "multi"]), envvar="NEREID_MODE", default="single", show_default=True)
+@click.option("--output", "-o", envvar="NEREID_FILE_PATH", required=True, help="Output path — XLSX file (single) or folder (multi).")
+@click.option("--db-url", envvar="NEREID_DB_URL", required=True, help="PostgreSQL connection string.")
+@click.option("--tables", "-t", multiple=True, help="Tables to export. Exports all if not specified.")
 def export(mode, output, db_url, tables):
-    """
-    Export data from PostgreSQL to a spreadsheet or CSV folder.
-
-    In single mode, each table becomes a tab in one XLSX file.
-    In multi mode, each table becomes its own CSV file in a folder.
-    """
+    """Export data from PostgreSQL to a spreadsheet or CSV folder."""
     from nereid.core.exporter import run_export
 
     console.print(f"[bold green]Nereid Export[/bold green] — mode: [cyan]{mode}[/cyan]")
     console.print(f"Output: [cyan]{output}[/cyan]")
 
     try:
-        run_export(
-            mode=mode,
-            output_path=output,
-            db_url=db_url,
-            tables=list(tables) if tables else None,
-        )
+        run_export(mode=mode, output_path=output, db_url=db_url, tables=list(tables) if tables else None)
         console.print("[bold green]✓ Export complete.[/bold green]")
     except Exception as e:
         console.print(f"[bold red]✗ Export failed:[/bold red] {e}")
@@ -77,56 +44,14 @@ def export(mode, output, db_url, tables):
 
 
 @cli.command()
-@click.option(
-    "--mode",
-    type=click.Choice(["single", "multi"]),
-    envvar="NEREID_MODE",
-    default="single",
-    show_default=True,
-    help="Sync mode: single XLSX file or folder of CSVs.",
-)
-@click.option(
-    "--path",
-    "-p",
-    envvar="NEREID_FILE_PATH",
-    required=True,
-    help="Path to watch — XLSX file (single) or folder (multi).",
-)
-@click.option(
-    "--db-url",
-    envvar="NEREID_DB_URL",
-    required=True,
-    help="PostgreSQL connection string.",
-)
-@click.option(
-    "--pk",
-    envvar="NEREID_PK_COLUMN",
-    default="id",
-    show_default=True,
-    help="Primary key column name used for diffing.",
-)
-@click.option(
-    "--staging-schema",
-    envvar="NEREID_STAGING_SCHEMA",
-    default="nereid_staging",
-    show_default=True,
-    help="Staging schema name within the same PostgreSQL database.",
-)
-@click.option(
-    "--debounce",
-    envvar="NEREID_DEBOUNCE_SECONDS",
-    default=2.0,
-    show_default=True,
-    type=float,
-    help="Seconds to wait after a file change before syncing.",
-)
+@click.option("--mode", type=click.Choice(["single", "multi"]), envvar="NEREID_MODE", default="single", show_default=True)
+@click.option("--path", "-p", envvar="NEREID_FILE_PATH", required=True, help="Path to watch — XLSX file (single) or folder (multi).")
+@click.option("--db-url", envvar="NEREID_DB_URL", required=True, help="PostgreSQL connection string.")
+@click.option("--pk", envvar="NEREID_PK_COLUMN", default="id", show_default=True, help="Primary key column name.")
+@click.option("--staging-schema", envvar="NEREID_STAGING_SCHEMA", default="nereid_staging", show_default=True)
+@click.option("--debounce", envvar="NEREID_DEBOUNCE_SECONDS", default=2.0, show_default=True, type=float, help="Seconds to wait after a file change before syncing.")
 def watch(mode, path, db_url, pk, staging_schema, debounce):
-    """
-    Watch a file or folder for changes and sync to PostgreSQL staging.
-
-    Changes are written to the staging schema first.
-    Use `nereid review` to inspect and promote changes to production.
-    """
+    """Watch a file or folder for changes and sync to PostgreSQL staging."""
     from nereid.core.watcher import run_watch
 
     console.print(f"[bold green]Nereid Watch[/bold green] — mode: [cyan]{mode}[/cyan]")
@@ -136,50 +61,30 @@ def watch(mode, path, db_url, pk, staging_schema, debounce):
     console.print("[dim]Press Ctrl+C to stop.[/dim]\n")
 
     try:
-        run_watch(
-            mode=mode,
-            watch_path=path,
-            db_url=db_url,
-            pk_column=pk,
-            staging_schema=staging_schema,
-            debounce_seconds=debounce,
-        )
+        run_watch(mode=mode, watch_path=path, db_url=db_url, pk_column=pk, staging_schema=staging_schema, debounce_seconds=debounce)
     except KeyboardInterrupt:
         console.print("\n[yellow]Nereid watch stopped.[/yellow]")
 
 
 @cli.command()
-@click.option(
-    "--db-url",
-    envvar="NEREID_DB_URL",
-    required=True,
-    help="PostgreSQL connection string.",
-)
-@click.option(
-    "--staging-schema",
-    envvar="NEREID_STAGING_SCHEMA",
-    default="nereid_staging",
-    show_default=True,
-    help="Staging schema to review.",
-)
-@click.option(
-    "--approve",
-    is_flag=True,
-    default=False,
-    help="Promote all staged changes to production.",
-)
-@click.option(
-    "--reject",
-    is_flag=True,
-    default=False,
-    help="Clear all staged changes without applying them.",
-)
-def review(db_url, staging_schema, approve, reject):
+@click.option("--db-url", envvar="NEREID_DB_URL", required=True, help="PostgreSQL connection string.")
+@click.option("--staging-schema", envvar="NEREID_STAGING_SCHEMA", default="nereid_staging", show_default=True)
+@click.option("--approve-all", is_flag=True, default=False, help="Promote all staged changes to production.")
+@click.option("--approve-table", default=None, metavar="TABLE", help="Promote a specific table only.")
+@click.option("--reject-all", is_flag=True, default=False, help="Discard all staged changes.")
+@click.option("--reject-table", default=None, metavar="TABLE", help="Discard a specific table only.")
+@click.option("--interactive", "-i", is_flag=True, default=False, help="Review and decide table by table.")
+def review(db_url, staging_schema, approve_all, approve_table, reject_all, reject_table, interactive):
     """
     Review pending changes in the staging schema.
 
-    Shows a diff of what will change in production.
-    Use --approve to promote changes, --reject to discard them.
+    \b
+    Examples:
+      nereid review                          # show what's staged
+      nereid review --approve-all            # promote everything
+      nereid review --approve-table orders   # promote orders only
+      nereid review --reject-table customers # discard customers changes
+      nereid review --interactive            # decide table by table
     """
     from nereid.core.reviewer import run_review
 
@@ -189,8 +94,11 @@ def review(db_url, staging_schema, approve, reject):
         run_review(
             db_url=db_url,
             staging_schema=staging_schema,
-            approve=approve,
-            reject=reject,
+            approve_all=approve_all,
+            approve_table=approve_table,
+            reject_all=reject_all,
+            reject_table=reject_table,
+            interactive=interactive,
         )
     except Exception as e:
         console.print(f"[bold red]✗ Review failed:[/bold red] {e}")
