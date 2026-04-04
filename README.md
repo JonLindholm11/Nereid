@@ -206,11 +206,3 @@ MIT — see [LICENSE](LICENSE)
 ---
 
 *Built by [Lunar Systems](https://github.com/JonLindholm11)*
-
-## License
-
-MIT — see [LICENSE](LICENSE)
-
----
-
-*Built by [Lunar Systems](https://github.com/JonLindholm11)*
