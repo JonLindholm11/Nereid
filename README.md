@@ -1,8 +1,6 @@
 # Nereid
 
-**Open source CSV/XLSX ↔ PostgreSQL two-way sync engine.**  
-
-A two-way sync engine between PostgreSQL and spreadsheets, so non-technical users can view and update database records in Excel or Google Sheets without ever touching the database.
+Open source CSV/XLSX ↔ PostgreSQL two-way sync engine that allows non-technical users to view and update database records in Excel or Google Sheets without direct database access.
 
 ---
 
