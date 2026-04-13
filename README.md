@@ -189,13 +189,24 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, project structure
 
 ---
 
-## Roadmap
+Roadmap
 
-- **v0.1** — Export, watch, staging, granular review (current)
-- **v0.2** — Column name mapping (DB `cust_acct_ref` → human `Account Reference`)
-- **v0.3** — Change history / audit log
-- **v0.4** — Web UI for review
+v0.1 — Core Sync Engine (current)
+- Export, watch, staging, and granular review workflows
 
+v0.2 — Remote Integration & Deployment
+- API-based artifact publishing for VM and remote environments
+- Remote change detection (polling or webhook-based)
+- Support for cloud-backed spreadsheet workflows without local file sync
+
+v0.3 — Data Usability Improvements
+- Column name mapping for user-friendly spreadsheet views (e.g. cust_acct_ref → Account Reference)
+
+v0.4 — Audit & Traceability
+- Change history and audit logging for tracking edits and approvals
+
+v0.5 — Review Interface
+- Web-based UI for inspecting and approving staged changes
 ---
 
 ## License
