@@ -8,6 +8,8 @@ Open source CSV/XLSX ↔ PostgreSQL two-way sync engine that allows non-technica
 
 ```
 PostgreSQL ←→ Nereid ←→ Local synced folder ←→ Cloud service ←→ Customer
+
+Nereid acts as a controlled bridge between the database and user-facing spreadsheets.
 ```
 
 1. **Export** — pull data from Postgres into an XLSX or CSV folder
