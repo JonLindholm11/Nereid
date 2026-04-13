@@ -1,7 +1,6 @@
 # Nereid
 
 **Open source CSV/XLSX ↔ PostgreSQL two-way sync engine.**  
-A [Lunar Systems](https://github.com/JonLindholm11) open source tool.
 
 A two-way sync engine between PostgreSQL and spreadsheets, so non-technical users can view and update database records in Excel or Google Sheets without ever touching the database.
 
@@ -205,4 +204,4 @@ MIT — see [LICENSE](LICENSE)
 
 ---
 
-*Built by [Lunar Systems](https://github.com/JonLindholm11)*
+*Built by [Jon Lindholm](https://github.com/JonLindholm11)*
