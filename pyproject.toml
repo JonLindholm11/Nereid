@@ -44,6 +44,11 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
 ]
+gdrive = [
+    "google-api-python-client>=2.0",
+    "google-auth>=2.0",
+    "google-auth-httplib2>=0.2",
+]
 
 [project.scripts]
 nereid = "nereid.cli.main:cli"

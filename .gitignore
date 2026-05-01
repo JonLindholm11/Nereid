@@ -27,6 +27,9 @@ htmlcov/
 # Nereid internal cache
 .nereid/
 
+# Nereid cloud credentials (written by `nereid connect`)
+.nereid-credentials.json
+
 # IDE
 .vscode/
 .idea/

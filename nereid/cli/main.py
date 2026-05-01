@@ -1,7 +1,10 @@
 """
 Nereid CLI — main entry point.
-Commands: export, watch, review.
+Commands: export, watch, review, connect, watch-cloud.
 """
+
+import json
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -21,6 +24,11 @@ def cli():
     A Lunar Systems open source tool.
     """
     pass
+
+
+# ── Cloud provider commands (import here to keep existing commands untouched) ──
+from nereid.cli.connect import connect  # noqa: E402
+cli.add_command(connect)
 
 
 @cli.command()
@@ -103,6 +111,98 @@ def review(db_url, staging_schema, approve_all, approve_table, reject_all, rejec
     except Exception as e:
         console.print(f"[bold red]✗ Review failed:[/bold red] {e}")
         raise SystemExit(1)
+
+
+@cli.group("watch-cloud")
+def watch_cloud():
+    """Poll a cloud-hosted file for changes and sync to PostgreSQL staging."""
+    pass
+
+
+@watch_cloud.command("google-drive")
+@click.option("--db-url", envvar="NEREID_DB_URL", required=True, help="PostgreSQL connection string.")
+@click.option("--pk", envvar="NEREID_PK_COLUMN", default="id", show_default=True, help="Primary key column name.")
+@click.option("--staging-schema", envvar="NEREID_STAGING_SCHEMA", default="nereid_staging", show_default=True)
+@click.option(
+    "--poll-interval",
+    envvar="NEREID_POLL_INTERVAL",
+    default=60.0,
+    show_default=True,
+    type=float,
+    help="Seconds between Drive polls.",
+)
+@click.option(
+    "--credentials", "-c",
+    default=None,
+    envvar="NEREID_GDRIVE_CREDENTIALS_FILE",
+    help="Path to service account JSON key (overrides stored config).",
+)
+@click.option(
+    "--file-id", "-f",
+    default=None,
+    envvar="NEREID_GDRIVE_FILE_ID",
+    help="Google Drive file ID (overrides stored config).",
+)
+def watch_cloud_gdrive(db_url, pk, staging_schema, poll_interval, credentials, file_id):
+    """
+    Poll a Google Drive file for changes and sync to PostgreSQL staging.
+
+    \b
+    Reads connection config from .nereid-credentials.json (written by
+    nereid connect google-drive).  Any option here overrides the stored value.
+
+    \b
+    Example:
+      nereid watch-cloud google-drive --db-url postgresql://user:pass@localhost/db
+    """
+    from nereid.providers.google_drive import GoogleDriveProvider
+    from nereid.core.cloud_watcher import run_cloud_watch
+
+    # Load stored config; CLI flags take precedence
+    stored_config: dict = {}
+    creds_file = Path(".nereid-credentials.json")
+    if creds_file.exists():
+        try:
+            stored_config = json.loads(creds_file.read_text()).get("google_drive", {})
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    resolved_credentials = credentials or stored_config.get("credentials_file")
+    resolved_file_id = file_id or stored_config.get("file_id")
+    mode = stored_config.get("mode", "single")
+    file_name = stored_config.get("file_name", "nereid_drive_file")
+    fallback_table_name = Path(file_name).stem
+
+    if not resolved_credentials or not resolved_file_id:
+        console.print("[red]✗ Google Drive credentials not configured.[/red]")
+        console.print("  Run: [cyan]nereid connect google-drive[/cyan]")
+        raise SystemExit(1)
+
+    console.print("[bold green]Nereid Cloud Watch[/bold green] — Google Drive")
+    console.print(f"File:           [cyan]{file_name}[/cyan]")
+    console.print(f"Staging schema: [cyan]{staging_schema}[/cyan]")
+    console.print(f"Poll interval:  [cyan]{poll_interval}s[/cyan]")
+    console.print("[dim]Press Ctrl+C to stop.[/dim]\n")
+
+    try:
+        provider = GoogleDriveProvider(
+            credentials_file=resolved_credentials,
+            file_id=resolved_file_id,
+        )
+        run_cloud_watch(
+            provider=provider,
+            mode=mode,
+            fallback_table_name=fallback_table_name,
+            db_url=db_url,
+            pk_column=pk,
+            staging_schema=staging_schema,
+            poll_interval=poll_interval,
+        )
+    except RuntimeError as e:
+        console.print(f"[red]✗ {e}[/red]")
+        raise SystemExit(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Nereid cloud watch stopped.[/yellow]")
 
 
 if __name__ == "__main__":
