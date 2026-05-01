@@ -19,6 +19,8 @@ For teams using a locally synced cloud folder (Google Drive desktop app, Dropbox
 PostgreSQL ←→ Nereid ←→ Local synced folder ←→ Cloud service ←→ Client
 ```
 
+Nereid acts as a controlled bridge between the database and user-facing spreadsheets.
+
 ### Direct API sync (Google Drive)
 
 For hosted deployments where no local sync client is installed:
@@ -59,7 +61,7 @@ From source:
 ```bash
 git clone https://github.com/JonLindholm11/Nereid
 cd Nereid
-pip install -e ".[dev]"
+python install.py
 ```
 
 ---
@@ -206,6 +208,8 @@ Runs until `Ctrl+C`. On each poll cycle:
 
 Inspect staged changes and decide what to promote to production.
 
+Table names match your actual database table names — the same names that appear as tabs in your XLSX file or as CSV filenames. There are no hardcoded table names — Nereid works with whatever tables you have.
+
 ```bash
 # View all pending staged changes
 nereid review
@@ -215,6 +219,7 @@ nereid review --approve-all
 
 # Approve a specific table only
 nereid review --approve-table orders
+nereid review --approve-table invoices
 
 # Reject a specific table — discard its staged changes
 nereid review --reject-table customers
@@ -226,7 +231,7 @@ nereid review --reject-all
 nereid review --interactive
 ```
 
-Table names match your actual database table names — the same names that appear as tabs in your XLSX file or as CSV filenames.
+Interactive mode is the most useful for real-world review — it shows each table's staged changes one at a time and asks what to do before moving on. Nothing is applied until you explicitly approve it.
 
 ---
 
@@ -319,9 +324,15 @@ ruff check .
 
 ---
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, project structure, and how to submit changes.
+
+---
+
 ## Roadmap
 
-- **v0.1** — Export, watch, staging, review, Google Drive API sync (current)
+- **v0.1** — Core sync engine: export, watch, staging, granular review, Google Drive API sync (current)
 - **v0.2** — Column name mapping (DB `cust_acct_ref` → human `Account Reference`)
 - **v0.3** — Change history / audit log
 - **v0.4** — Additional cloud providers (Dropbox, OneDrive)
@@ -335,4 +346,4 @@ MIT — see [LICENSE](LICENSE)
 
 ---
 
-*Built by [Lunar Systems](https://github.com/JonLindholm11)*
+*Built by [Jon Lindholm](https://github.com/JonLindholm11)*
