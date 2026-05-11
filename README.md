@@ -1,7 +1,6 @@
 # Nereid
 
 **Open source CSV/XLSX ↔ PostgreSQL two-way sync engine.**  
-A [Lunar Systems](https://github.com/JonLindholm11) open source tool.
 
 Nereid lets non-technical users view and edit database records in a spreadsheet — no SQL, no admin panels, no new accounts. Share a file with your client, they edit it, Nereid diffs the changes and stages them for review before anything touches production.
 
