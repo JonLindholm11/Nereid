@@ -26,7 +26,7 @@ def cli():
     pass
 
 
-# ── Cloud provider commands (import here to keep existing commands untouched) ──
+# ── Cloud provider commands ────────────────────────────────────────────────────
 from nereid.cli.connect import connect  # noqa: E402
 cli.add_command(connect)
 
@@ -132,28 +132,22 @@ def watch_cloud():
     help="Seconds between Drive polls.",
 )
 @click.option(
-    "--credentials", "-c",
-    default=None,
-    envvar="NEREID_GDRIVE_CREDENTIALS_FILE",
-    help="Path to service account JSON key (overrides stored config).",
-)
-@click.option(
     "--file-id", "-f",
     default=None,
     envvar="NEREID_GDRIVE_FILE_ID",
     help="Google Drive file ID (overrides stored config).",
 )
-def watch_cloud_gdrive(db_url, pk, staging_schema, poll_interval, credentials, file_id):
+def watch_cloud_gdrive(db_url, pk, staging_schema, poll_interval, file_id):
     """
     Poll a Google Drive file for changes and sync to PostgreSQL staging.
 
     \b
     Reads connection config from .nereid-credentials.json (written by
-    nereid connect google-drive).  Any option here overrides the stored value.
+    nereid connect google-drive). Any option here overrides the stored value.
 
     \b
     Example:
-      nereid watch-cloud google-drive --db-url postgresql://user:pass@localhost/db
+      nereid watch-cloud google-drive
     """
     from nereid.providers.google_drive import GoogleDriveProvider
     from nereid.core.cloud_watcher import run_cloud_watch
@@ -167,14 +161,13 @@ def watch_cloud_gdrive(db_url, pk, staging_schema, poll_interval, credentials, f
         except (json.JSONDecodeError, KeyError):
             pass
 
-    resolved_credentials = credentials or stored_config.get("credentials_file")
     resolved_file_id = file_id or stored_config.get("file_id")
     mode = stored_config.get("mode", "single")
     file_name = stored_config.get("file_name", "nereid_drive_file")
     fallback_table_name = Path(file_name).stem
 
-    if not resolved_credentials or not resolved_file_id:
-        console.print("[red]✗ Google Drive credentials not configured.[/red]")
+    if not resolved_file_id:
+        console.print("[red]✗ Google Drive file ID not configured.[/red]")
         console.print("  Run: [cyan]nereid connect google-drive[/cyan]")
         raise SystemExit(1)
 
@@ -185,10 +178,7 @@ def watch_cloud_gdrive(db_url, pk, staging_schema, poll_interval, credentials, f
     console.print("[dim]Press Ctrl+C to stop.[/dim]\n")
 
     try:
-        provider = GoogleDriveProvider(
-            credentials_file=resolved_credentials,
-            file_id=resolved_file_id,
-        )
+        provider = GoogleDriveProvider(file_id=resolved_file_id)
         run_cloud_watch(
             provider=provider,
             mode=mode,
