@@ -11,6 +11,7 @@ import tempfile
 import time
 import pandas as pd
 from pathlib import Path
+from datetime import datetime
 
 from nereid.core.differ import compute_diff
 from nereid.core.staging import write_to_staging, load_staging_snapshot
@@ -77,6 +78,12 @@ def _sync_once(
             logger.dim(
                 f"  First sync for '{table_name}' — "
                 f"treating all {len(new_df)} rows as inserts."
+            )
+            old_df = pd.DataFrame(columns=new_df.columns)
+        elif set(old_df.columns) != set(new_df.columns):
+            logger.dim(
+                f"  '{table_name}' column mismatch — resetting snapshot "
+                f"and treating all {len(new_df)} rows as inserts."
             )
             old_df = pd.DataFrame(columns=new_df.columns)
 
@@ -164,6 +171,128 @@ def run_cloud_watch(
                 last_modified = current_modified
             else:
                 logger.dim(f"No changes detected. Next check in {poll_interval}s.")
+
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            logger.error(f"Poll error — will retry in {poll_interval}s: {e}")
+
+        time.sleep(poll_interval)
+
+def run_cloud_watch_folder(
+    folder_id: str,
+    mode: str,
+    db_url: str,
+    pk_column: str,
+    staging_schema: str,
+    poll_interval: float,
+    schema: str = "public",
+) -> None:
+    """
+    Watch a Google Drive folder for changes and sync to staging.
+    On first run, exports DB state to Drive if folder is empty.
+    Blocks until Ctrl+C.
+
+    Parameters
+    ----------
+    folder_id:
+        Google Drive folder ID to watch.
+    mode:
+        "single" for one XLSX (sheets = tables) or "multi" for CSVs (filename = table).
+    db_url:
+        PostgreSQL connection string.
+    pk_column:
+        Primary key column used for diffing.
+    staging_schema:
+        Postgres schema where staged changes are written.
+    poll_interval:
+        Seconds between folder checks.
+    schema:
+        DB schema to read/write from. Defaults to public.
+    """
+    from nereid.providers.google_drive import GoogleDriveProvider
+    from nereid.core.exporter import (
+        export_single_to_drive,
+        export_multi_to_drive,
+    )
+
+    engine = get_engine(db_url)
+    ensure_staging_schema(engine, staging_schema)
+
+    provider = GoogleDriveProvider(file_id="folder_mode")
+
+    file_registry: dict[str, str] = {}
+
+    logger.info("Checking Google Drive folder for existing files...")
+    existing_files = provider.list_folder_files(folder_id)
+
+    if not existing_files:
+        logger.info("Folder is empty — exporting DB state to Google Drive...")
+        if mode == "single":
+            file_id = export_single_to_drive(
+                engine=engine,
+                folder_id=folder_id,
+                provider=provider,
+                schema=schema,
+                file_name="nereid_export.xlsx",
+            )
+            file_registry["nereid_export.xlsx"] = file_id
+        elif mode == "multi":
+            file_registry = export_multi_to_drive(
+                engine=engine,
+                folder_id=folder_id,
+                provider=provider,
+                schema=schema,
+            )
+        logger.success("Initial export complete. Watching for changes...")
+    else:
+        logger.info(f"Found {len(existing_files)} file(s) in folder — skipping initial export.")
+        for f in existing_files:
+            name_stem = Path(f["name"]).stem
+            file_registry[name_stem] = f["id"]
+        logger.success("File registry loaded. Watching for changes...")
+
+    snapshots: dict[str, pd.DataFrame] = load_staging_snapshot(engine, staging_schema)
+    last_modified: dict[str, float] = {}
+
+    logger.success(
+        f"Nereid Folder Watch active — polling every {poll_interval}s. "
+        "Press Ctrl+C to stop.\n"
+    )
+
+    while True:
+        try:
+            current_files = provider.list_folder_files(folder_id)
+
+            for file_meta in current_files:
+                file_id   = file_meta["id"]
+                file_name = file_meta["name"]
+                name_stem = Path(file_name).stem
+                raw_mod   = file_meta["modifiedTime"]
+                dt        = datetime.fromisoformat(raw_mod.replace("Z", "+00:00"))
+                current_mod = dt.timestamp()
+
+                if last_modified.get(file_id) == current_mod:
+                    continue
+
+                logger.info(f"Change detected in '{file_name}' — syncing...")
+
+                file_provider = GoogleDriveProvider(file_id=file_id)
+
+                _sync_once(
+                    provider=file_provider,
+                    mode=mode,
+                    fallback_table_name=name_stem,
+                    engine=engine,
+                    pk_column=pk_column,
+                    staging_schema=staging_schema,
+                    snapshots=snapshots,
+                )
+
+                last_modified[file_id] = current_mod
+
+                if name_stem not in file_registry:
+                    file_registry[name_stem] = file_id
 
         except KeyboardInterrupt:
             raise

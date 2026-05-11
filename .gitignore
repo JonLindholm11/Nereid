@@ -43,3 +43,9 @@ Thumbs.db
 # Logs
 *.log
 nereid.log
+
+#API KEYS
+nereid.config.json
+*-credentials.json
+*-key.json
+sandbox-*.json

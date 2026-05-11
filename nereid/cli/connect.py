@@ -1,21 +1,23 @@
 """
 nereid connect — configure cloud provider credentials.
 
-Stores provider configuration in .nereid-credentials.json (project-local,
-auto-added to .gitignore) so that nereid watch-cloud can run without
-repeating these flags every time.
+Reads credentials from environment variables — no JSON key file needed
+in the project directory.
 
 Usage:
   nereid connect google-drive
-  nereid connect google-drive --credentials /path/to/sa-key.json --file-id FILE_ID
 """
 
 import json
 import re
+import os
 from pathlib import Path
 
 import click
 from rich.console import Console
+from dotenv import load_dotenv
+
+load_dotenv()
 
 console = Console()
 
@@ -38,10 +40,6 @@ def _save_credentials(data: dict) -> None:
 
 
 def _ensure_gitignored() -> None:
-    """
-    Add .nereid-credentials.json to the local .gitignore if it is not
-    already listed there.  Creates .gitignore if it doesn't exist.
-    """
     gitignore = Path(".gitignore")
     entry = _CREDENTIALS_FILE
 
@@ -55,22 +53,20 @@ def _ensure_gitignored() -> None:
 
 
 def _extract_file_id(value: str) -> str:
-    """
-    Accept either a raw file ID or any Google Drive / Docs URL and return
-    just the file ID portion.
-
-    Handles URLs like:
-      https://drive.google.com/file/d/FILE_ID/view
-      https://docs.google.com/spreadsheets/d/FILE_ID/edit
-    """
     if "google.com" in value:
         match = re.search(r"/d/([a-zA-Z0-9_-]+)", value)
         if match:
             return match.group(1)
-    return value.strip()
+    return value.split("?")[0].split("#")[0].strip()
 
 
-# ── CLI group ──────────────────────────────────────────────────────────────────
+def _extract_folder_id(value: str) -> str:
+    if "google.com" in value:
+        match = re.search(r"/folders/([a-zA-Z0-9_-]+)", value)
+        if match:
+            return match.group(1)
+    return value.split("?")[0].split("#")[0].strip()
+
 
 @click.group()
 def connect():
@@ -78,88 +74,74 @@ def connect():
     pass
 
 
-# ── google-drive subcommand ────────────────────────────────────────────────────
-
 @connect.command("google-drive")
-@click.option(
-    "--credentials", "-c",
-    default=None,
-    type=click.Path(exists=True, dir_okay=False),
-    help="Path to service account JSON key file.",
-)
-@click.option(
-    "--file-id", "-f",
-    default=None,
-    help="Google Drive file ID or URL of the XLSX/Google Sheet to sync.",
-)
-def google_drive(credentials, file_id):
+@click.option("--file-id", "-f", default=None, help="Google Drive file ID or URL. Defaults to NEREID_GDRIVE_FILE_ID.")
+@click.option("--folder-id", "-d", default=None, help="Google Drive folder ID or URL. Defaults to NEREID_GDRIVE_FOLDER_ID.")
+@click.option("--db-url", default=None, help="PostgreSQL connection string. Defaults to NEREID_DB_URL.")
+@click.option("--poll-interval", default=None, type=float, help="Poll interval in seconds. Defaults to NEREID_POLL_INTERVAL or 60.")
+def google_drive(file_id, folder_id, db_url, poll_interval):
     """
     Connect Nereid to a Google Drive file using a service account.
 
     \b
-    One-time setup:
-      1. Create a Google Cloud project and enable the Drive API
-      2. Create a service account and download its JSON key
-      3. Share your XLSX or Google Sheet with the service account email
-      4. Run this command
-
-    \b
-    Example:
-      nereid connect google-drive \\
-        --credentials /path/to/service-account.json \\
-        --file-id 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
+    Set these in your .env before running:
+      NEREID_GDRIVE_CLIENT_EMAIL   — from your service account JSON
+      NEREID_GDRIVE_PRIVATE_KEY    — from your service account JSON
+      NEREID_GDRIVE_PROJECT_ID     — from your service account JSON
+      NEREID_GDRIVE_FILE_ID        — Google Drive file ID or URL
+      NEREID_GDRIVE_FOLDER_ID      — Google Drive folder ID or URL
+      NEREID_DB_URL                — PostgreSQL connection string
+      NEREID_POLL_INTERVAL         — seconds between checks (default 60)
     """
     console.print("[bold green]Nereid Connect[/bold green] — Google Drive\n")
 
-    # ── Credentials file ───────────────────────────────────────────────────
-    if not credentials:
-        credentials = click.prompt(
-            "Path to service account JSON key file",
-            type=click.Path(exists=True, dir_okay=False),
-        )
+    # ── Resolve values ─────────────────────────────────────────────────────
+    file_id       = file_id or os.getenv("NEREID_GDRIVE_FILE_ID")
+    folder_id     = folder_id or os.getenv("NEREID_GDRIVE_FOLDER_ID")
+    db_url        = db_url or os.getenv("NEREID_DB_URL")
+    poll_interval = poll_interval or float(os.getenv("NEREID_POLL_INTERVAL", "60"))
 
-    cred_path = Path(credentials).resolve()
+    client_email = os.getenv("NEREID_GDRIVE_CLIENT_EMAIL")
+    private_key  = os.getenv("NEREID_GDRIVE_PRIVATE_KEY")
+    project_id   = os.getenv("NEREID_GDRIVE_PROJECT_ID")
 
-    try:
-        key_data = json.loads(cred_path.read_text())
-    except (json.JSONDecodeError, OSError) as e:
-        console.print(f"[red]✗ Could not read credentials file: {e}[/red]")
+    # ── Validate required fields ───────────────────────────────────────────
+    missing = []
+    if not client_email: missing.append("NEREID_GDRIVE_CLIENT_EMAIL")
+    if not private_key:  missing.append("NEREID_GDRIVE_PRIVATE_KEY")
+    if not project_id:   missing.append("NEREID_GDRIVE_PROJECT_ID")
+    if not file_id:      missing.append("NEREID_GDRIVE_FILE_ID")
+    if not folder_id:    missing.append("NEREID_GDRIVE_FOLDER_ID")
+    if not db_url:       missing.append("NEREID_DB_URL")
+
+    if missing:
+        console.print("[red]✗ Missing required environment variables:[/red]")
+        for m in missing:
+            console.print(f"  [yellow]{m}[/yellow]")
+        console.print("\nAdd these to your [cyan].env[/cyan] file and re-run.")
         raise SystemExit(1)
 
-    if key_data.get("type") != "service_account":
-        console.print("[red]✗ File does not look like a service account key.[/red]")
-        console.print("  Download a service account JSON key from Google Cloud Console.")
-        raise SystemExit(1)
+    file_id   = _extract_file_id(file_id)
+    folder_id = _extract_folder_id(folder_id)
 
-    sa_email = key_data.get("client_email", "unknown")
-    console.print(f"[dim]Service account: {sa_email}[/dim]")
-
-    # ── File ID ────────────────────────────────────────────────────────────
-    if not file_id:
-        file_id = click.prompt("Google Drive file ID or URL")
-
-    file_id = _extract_file_id(file_id)
+    console.print(f"[dim]Service account: {client_email}[/dim]")
 
     # ── Validate connection ────────────────────────────────────────────────
     console.print("\n[dim]Validating credentials and file access...[/dim]")
     try:
         from nereid.providers.google_drive import GoogleDriveProvider
 
-        provider = GoogleDriveProvider(
-            credentials_file=str(cred_path),
-            file_id=file_id,
-        )
+        provider = GoogleDriveProvider(file_id=file_id)
         provider.validate_credentials()
         file_name = provider.get_file_name()
         mime = provider.get_file_mime()
 
     except RuntimeError as e:
-        # Missing optional dependencies
         console.print(f"[red]✗ {e}[/red]")
         raise SystemExit(1)
     except Exception as e:
         console.print(f"[red]✗ Could not access file: {e}[/red]")
-        console.print(f"  Make sure the file is shared with: [cyan]{sa_email}[/cyan]")
+        console.print(f"  Make sure the file is shared with: [cyan]{client_email}[/cyan]")
         raise SystemExit(1)
 
     # ── Determine sync mode ────────────────────────────────────────────────
@@ -179,16 +161,18 @@ def google_drive(credentials, file_id):
     # ── Persist config ─────────────────────────────────────────────────────
     stored = _load_credentials()
     stored["google_drive"] = {
-        "credentials_file": str(cred_path),
         "file_id": file_id,
+        "folder_id": folder_id,
         "file_name": file_name,
         "mode": mode,
+        "db_url": db_url,
+        "poll_interval": poll_interval,
+        "staging_schema": os.getenv("NEREID_STAGING_SCHEMA", "nereid_staging"),
+        "pk_column": os.getenv("NEREID_PK_COLUMN", "id"),
     }
     _save_credentials(stored)
 
     console.print(f"\n[green]✓ Config saved to[/green] [cyan]{_CREDENTIALS_FILE}[/cyan]")
     console.print("[dim]  (added to .gitignore automatically)[/dim]\n")
     console.print("Next — start syncing:")
-    console.print(
-        "  [cyan]nereid watch-cloud google-drive --db-url postgresql://...[/cyan]"
-    )
+    console.print("  [cyan]nereid watch-cloud google-drive[/cyan]")

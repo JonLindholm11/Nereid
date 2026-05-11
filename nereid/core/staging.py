@@ -155,6 +155,9 @@ def promote_to_production(engine: Engine, staging_schema: str, production_schema
         if staged_df.empty:
             continue
 
+        # ── Auto-create production table if it doesn't exist ──────────────
+        _ensure_production_table(engine, table_name, staged_df, production_schema)
+
         pk_col = _get_pk_column(engine, table_name, production_schema)
         if not pk_col:
             logger.warning(f"  No PK found for '{table_name}' — skipping promotion.")
@@ -168,6 +171,33 @@ def promote_to_production(engine: Engine, staging_schema: str, production_schema
     _apply_staged_deletes(engine, staging_schema, production_schema)
     clear_staging(engine, staging_schema)
     return promoted
+
+
+def _ensure_production_table(engine: Engine, table_name: str, df: pd.DataFrame, schema: str):
+    """
+    Create the production table from DataFrame columns if it doesn't exist,
+    and ensure an 'id' primary key column is present.
+    """
+    cols_ddl = ", ".join(f'"{c}" TEXT' for c in df.columns if c != "id")
+
+    with engine.connect() as conn:
+        # Create table with id as primary key if it doesn't exist
+        if "id" in df.columns:
+            conn.execute(text(
+                f'CREATE TABLE IF NOT EXISTS "{schema}"."{table_name}" '
+                f'("id" TEXT PRIMARY KEY, {cols_ddl})'
+            ))
+        else:
+            # No id column — create without PK, warn the user
+            all_cols = ", ".join(f'"{c}" TEXT' for c in df.columns)
+            conn.execute(text(
+                f'CREATE TABLE IF NOT EXISTS "{schema}"."{table_name}" ({all_cols})'
+            ))
+            logger.warning(
+                f"  '{table_name}' has no 'id' column — created without PK. "
+                "Upsert will be skipped."
+            )
+        conn.commit()
 
 
 def clear_staging(engine: Engine, staging_schema: str):

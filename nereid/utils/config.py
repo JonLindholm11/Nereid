@@ -3,6 +3,8 @@ Nereid configuration — loads and validates environment settings.
 """
 
 import os
+import json
+from pathlib import Path
 from dataclasses import dataclass, field
 
 
@@ -40,3 +42,65 @@ def load_config() -> NereidConfig:
         debounce_seconds=float(os.getenv("NEREID_DEBOUNCE_SECONDS", "2")),
     )
     return config
+
+
+# ── Hosted multi-connection config ────────────────────────────────────────────
+
+@dataclass
+class ConnectionConfig:
+    name: str
+    folder_id: str
+    db_url: str
+    staging_schema: str = "nereid_staging"
+    pk_column: str = "id"
+    mode: str = "single"
+    schema: str = "public"
+
+
+@dataclass
+class NereidHostedConfig:
+    credentials_file: str
+    poll_interval: float
+    connections: list[ConnectionConfig]
+
+
+def load_hosted_config(path: str = ".nereid-credentials.json") -> NereidHostedConfig:
+    """
+    Load hosted multi-connection config from .nereid-credentials.json.
+    Generated automatically by `nereid connect google-drive`.
+    """
+    config_path = Path(path)
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f".nereid-credentials.json not found at '{config_path.resolve()}'\n"
+            "Run `nereid connect google-drive` to generate it."
+        )
+
+    with open(config_path) as f:
+        raw = json.load(f)
+
+    gdrive = raw.get("google_drive")
+    if not gdrive:
+        raise ValueError(
+            "No google_drive config found in .nereid-credentials.json.\n"
+            "Run `nereid connect google-drive` to set it up."
+        )
+
+    # Build credentials from env vars
+    credentials_file = gdrive.get("credentials_file")  # legacy fallback
+
+    connection = ConnectionConfig(
+        name="default",
+        folder_id=gdrive.get("folder_id", ""),
+        db_url=gdrive.get("db_url") or os.getenv("NEREID_DB_URL", ""),
+        staging_schema=gdrive.get("staging_schema", "nereid_staging"),
+        pk_column=gdrive.get("pk_column", "id"),
+        mode=gdrive.get("mode", "single"),
+        schema="public",
+    )
+
+    return NereidHostedConfig(
+        credentials_file=credentials_file or "",
+        poll_interval=gdrive.get("poll_interval", 60),
+        connections=[connection],
+    )
