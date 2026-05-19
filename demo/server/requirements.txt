@@ -5,3 +5,8 @@ pydantic==2.13.4
 python-dotenv==1.2.2
 sqlalchemy==2.0.35
 uvicorn==0.34.0
+rich
+psycopg2-binary
+openpyxl
+watchdog
+click
